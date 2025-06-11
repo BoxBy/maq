@@ -1,4 +1,3 @@
-```md
 # MAQ: Weight Quantization Library
 
 MAQ is a lightweight library for weight quantization in modern deep learning models. It provides flexible quantization methods, along with useful configuration and metric utilities.
