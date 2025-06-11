@@ -1,3 +1,5 @@
+#### This repository was developed leveraging GitHub Copilot's o3-mini.
+---
 # MAQ: Weight Quantization Library
 
 MAQ is a lightweight library for weight quantization in modern deep learning models. It provides flexible quantization methods, along with useful configuration and metric utilities.
@@ -8,10 +10,11 @@ MAQ is a lightweight library for weight quantization in modern deep learning mod
   It supports the following quantization libraries:
   * GPTQ ([`maq_gptq.py`](src/maq/utils/maq_gptq.py))
   * AWQ ([`maq_awq.py`](src/maq/utils/maq_awq.py)) – currently disabled due to 4-bit support limitations.  
-    We plan to support all the methods in transformers.quantizers.
+
+  We plan to support all the methods in transformers.quantizers.
 
 - **Memory-based Quantization Approach**:  
-  Unlike traditional methods that quantize based primarily on bit-width, MAQ adapts quantization according to available memory. In this approach, each module's importance is computed, and modules with lower importance are prioritized for quantization. For an in-depth overview of the methodology, please refer to a related paper ([https://arxiv.org/abs/2406.17415]). ([https://arxiv.org/abs/2409.14381]) 
+  Unlike traditional methods that quantize based primarily on bit-width, MAQ adapts quantization according to available memory. In this approach, each module's importance is computed, and modules with lower importance are prioritized for quantization. For an in-depth overview of the methodology, please refer to a related paper [Layer-Wise Quantization](https://arxiv.org/abs/2406.17415), [Investigating Layer Importance in Large Language Models](https://arxiv.org/abs/2409.14381)
 
 - **Configuration Tools**:  
   Easily fine-tune quantization parameters using the configuration utility ([`config.py`](src/maq/utils/config.py)).
@@ -78,12 +81,7 @@ quantizer.quantize_model(model)
 quantizer.save_model(model, f"{model_name}_MAQ")
 ```
 
-Additional utilities and advanced usage examples can be found in the [`src/maq/utils/`](src/maq/utils/) directory.
-
 ## License
 
 MAQ is licensed under the Apache License, Version 2.0. See the [LICENSE](./LICENSE) file for further details.
 
----
-
-This repository was developed leveraging GitHub Copilot's o3-mini.
