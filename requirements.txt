@@ -1,0 +1,5 @@
+datasets>=3.6.0
+transformers>=4.52.4
+optimum>=1.25.3
+gptqmodel>=4.0.0-dev
+torch>=2.7.0

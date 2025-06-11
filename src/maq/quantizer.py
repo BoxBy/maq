@@ -221,7 +221,7 @@ class MaqQuantizer(HfQuantizer):
             if self.quantization_config.dataset is None:
                 raise ValueError("You need to pass `dataset` in order to quantize your model")
             elif isinstance(self.quantization_config.dataset, str):
-                dataset = get_dataset(self.quantization_config.dataset, self.quantization_config.tokenizer, split='train')
+                dataset = get_dataset(self.quantization_config.dataset, self.quantization_config.tokenizer, split=self.quantization_config.dataset_split, remove_columns=self.quantization_config.remove_columns, n_samples=self.quantization_config.n_samples)
             else:
                 raise ValueError(
                     f"You need to pass a list of string, a list of tokenized data or a string for `dataset`. Found: {type(dataset)}."

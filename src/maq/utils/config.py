@@ -17,6 +17,9 @@ class MaqQuantizationConfig(QuantizationConfigMixin):
         reverse_sort: bool = False,
         tokenizer: Union[str, PreTrainedTokenizerBase] = None,
         dataset: str = "wikitext2",
+        dataset_split="validation",
+        remove_columns=[],
+        n_samples: Optional[int] = None,
         use_pruning: bool = False,
         quantize_recipe = {},
         module_dict = {},
@@ -31,6 +34,9 @@ class MaqQuantizationConfig(QuantizationConfigMixin):
         if isinstance(tokenizer, str):
             self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer)
         self.dataset = dataset  
+        self.dataset_split = dataset_split
+        self.remove_columns = remove_columns
+        self.n_samples = n_samples
         self.use_pruning = use_pruning
         if isinstance(quantization_config, QuantizationConfigMixin):
             self.quantization_config = quantization_config

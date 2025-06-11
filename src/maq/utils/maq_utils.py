@@ -1,18 +1,9 @@
-import importlib
-from typing import TYPE_CHECKING, List, Optional, Union
-from functools import partial
-from packaging import version
-from optimum.gptq.utils import get_layers
-from torch import nn
 import torch
 
 from datasets import load_dataset
+from tqdm.auto import tqdm
 
 from transformers.utils import logging
-if TYPE_CHECKING:
-    from transformers.modeling_utils import PreTrainedModel
-
-from gptqmodel.nn_modules.qlinear.torch import TorchQuantLinear
 from datasets.arrow_dataset import DatasetInfoMixin
 
 logger = logging.get_logger(__name__)
@@ -62,6 +53,7 @@ def compute_model_sizes(model):
 def get_dataset(
     data,
     tokenizer,
+    n_samples,
     remove_columns=[],
     max_seq_len=512,
     split="validation",
@@ -73,12 +65,14 @@ def get_dataset(
     data = data.remove_columns(remove_columns)
     
     if isinstance(data, DatasetInfoMixin):
-        for d in data:
+        for d in tqdm(data.select(range(n_samples))):
             data_encoded = tokenizer.encode(' '.join(list(d.values())))
-        data_return.append(torch.tensor([data_encoded]))
+            data_return.append(torch.tensor([data_encoded]))
     elif isinstance(data[0], str):
         data_return = tokenizer.encode(data)
     elif isinstance(data[0][0], int):
         data_return = data
     
-    return torch.cat(torch.cat(data_return, dim=1).split(max_seq_len, dim=1), dim=0) # (samples_len, max_seq_len)
+    data_return = torch.cat(data_return, dim=1)
+    
+    return data_return[:, :data_return.shape[1] - data_return.shape[1]%max_seq_len].split(max_seq_len, dim=1) # (samples_len, max_seq_len)

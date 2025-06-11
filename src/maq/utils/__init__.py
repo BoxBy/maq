@@ -1,4 +1,5 @@
 from transformers.utils.quantization_config import QuantizationMethod
+from .config import MaqQuantizationConfig
 from .maq_gptq import gptq, gptq_dequantize_module
 CUSTOM = {
     QuantizationMethod.GPTQ : gptq
