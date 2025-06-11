@@ -87,4 +87,3 @@ MAQ is licensed under the Apache License, Version 2.0. See the [LICENSE](./LICEN
 ---
 
 This repository was developed leveraging GitHub Copilot's o3-mini.
-```
