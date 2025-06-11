@@ -9,7 +9,7 @@ setuptools.setup(
     author="BoxBy",
     author_email="lute7071@gmail.com",
     description="Memory-Adaptive Quantization",
-    long_description=open("README.me").read(),
+    long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/BoxBy/Memory-Adaptive-Quantization",
     packages=setuptools.find_packages(where="src"),
