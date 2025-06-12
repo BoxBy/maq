@@ -44,7 +44,7 @@ Here is a basic example to help you get started:
 ```python
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
-from huggingface_MAQ import MaqQuantizationConfig, MaqQuantizer
+from maq import MaqQuantizationConfig, MaqQuantizer
 from transformers.utils.quantization_config import GPTQConfig
 
 # Specify the model to be quantized.

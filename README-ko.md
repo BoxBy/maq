@@ -44,7 +44,7 @@ pip install -e .
 ```python
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
-from huggingface_MAQ import MaqQuantizationConfig, MaqQuantizer
+from maq import MaqQuantizationConfig, MaqQuantizer
 from transformers.utils.quantization_config import GPTQConfig
 
 # 양자화할 모델을 지정합니다.
