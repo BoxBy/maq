@@ -1,5 +1,7 @@
 #### This repository was developed leveraging GitHub Copilot's o3-mini.
 ---
+### [English](README.md) | [한국어](README-ko.md)
+---
 # MAQ: Weight Quantization Library
 
 MAQ is a lightweight library for weight quantization in modern deep learning models. It provides flexible quantization methods, along with useful configuration and metric utilities.
@@ -10,17 +12,16 @@ MAQ is a lightweight library for weight quantization in modern deep learning mod
   It supports the following quantization libraries:
   * GPTQ ([`maq_gptq.py`](src/maq/utils/maq_gptq.py))
   * AWQ ([`maq_awq.py`](src/maq/utils/maq_awq.py)) – currently disabled due to 4-bit support limitations.  
-
+  
   We plan to support all the methods in transformers.quantizers.
 
 - **Memory-based Quantization Approach**:  
-  Unlike traditional methods that quantize based primarily on bit-width, MAQ adapts quantization according to available memory. In this approach, each module's importance is computed, and modules with lower importance are prioritized for quantization. For an in-depth overview of the methodology, please refer to a related paper [Layer-Wise Quantization](https://arxiv.org/abs/2406.17415), [Investigating Layer Importance in Large Language Models](https://arxiv.org/abs/2409.14381)
+  Unlike traditional methods that quantize based primarily on bit-width, MAQ adapts quantization according to available memory. In this approach, each module's importance is computed, and modules with lower importance are prioritized for quantization. For an in-depth overview of the methodology, please refer to the related papers [Layer-Wise Quantization](https://arxiv.org/abs/2406.17415) and [Investigating Layer Importance in Large Language Models](https://arxiv.org/abs/2409.14381).
 
-- **Configuration Tools**:  
-  Easily fine-tune quantization parameters using the configuration utility ([`config.py`](src/maq/utils/config.py)).
+  Additionally, MAQ is a library built based on [Paper] and [Paper]. It calculates the contribution of each hidden layer to the output and quantizes those layers with lower importance first. It was designed to be fully compatible with the huggingface-transformers library and to be user-friendly.
 
 - **Evaluation Metrics**:  
-  Built-in support for quantization evaluation via the metrics module ([`metric.py`](src/maq/utils/metric.py)).
+  The metrics module ([`metric.py`](src/maq/utils/metric.py)) provides methods to compute importance metrics, which are essential for determining quantization priorities.
 
 ## Installation
 
@@ -81,7 +82,13 @@ quantizer.quantize_model(model)
 quantizer.save_model(model, f"{model_name}_MAQ")
 ```
 
+Loading a saved model:
+
+```python
+from transformers import AutoModelForCausalLM
+model = AutoModelForCausalLM.from_pretrained("model_dir")
+```
+
 ## License
 
 MAQ is licensed under the Apache License, Version 2.0. See the [LICENSE](./LICENSE) file for further details.
-
