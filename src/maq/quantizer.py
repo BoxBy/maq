@@ -155,7 +155,7 @@ class MaqQuantizer(HfQuantizer):
         """
         model.eval()    
 
-        if hasattr(self.quantization_config, "module_dict"):
+        if getattr(self.quantization_config, "module_dict") is not None:
             logger.info(f"This model has already been quantized by MaqQuantizer. quantize processed by module_dict")
             return self.quantize_from_pretrained(model, **kwargs)
             

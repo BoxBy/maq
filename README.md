@@ -59,14 +59,16 @@ gptqconfig = GPTQConfig(bits=4, dataset='wikitext2')
 
 # Define the MAQ quantization configuration with memory limits and pruning as options.
 quantization_config = MaqQuantizationConfig(
-    memory_limit=0.2,
-    tokenizer=tokenizer,
-    dataset="pileval",
-    quantization_config=gptqconfig,
-    use_pruning=True
+  memory_limit=0.3, 
+  tokenizer=tokenizer, 
+  dataset="mit-han-lab/pile-val-backup", 
+  remove_columns="meta", 
+  quantization_config=gptqconfig,
+  use_pruning=True, 
+  n_samples=32 # If python is killed, try reducing it.
 )
 
-# Load the pre-trained model with low CPU memory usage and proper device mapping.
+# Load the pre-trained model with proper device mapping.
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
     device_map="cuda",

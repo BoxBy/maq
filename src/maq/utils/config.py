@@ -22,7 +22,7 @@ class MaqQuantizationConfig(QuantizationConfigMixin):
         n_samples: Optional[int] = None,
         use_pruning: bool = False,
         quantize_recipe = {},
-        module_dict = {},
+        module_dict: Optional[Dict] = None,
         max_seq_len = 512,
         **kwargs
     ):

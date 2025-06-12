@@ -57,16 +57,17 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 # 참고: 여기서 'bits' 파라미터는 양자화 과정에서 사용되지 않습니다.
 gptqconfig = GPTQConfig(bits=4, dataset='wikitext2')
 
-# 메모리 제한 및 가지치기를 옵션으로 하는 MAQ 양자화 구성을 정의합니다.
+# 메모리 제한 및 Pruning을 옵션으로 하는 MAQ 양자화 구성을 정의합니다.
 quantization_config = MaqQuantizationConfig(
-    memory_limit=0.2,
-    tokenizer=tokenizer,
-    dataset="pileval",
-    quantization_config=gptqconfig,
-    use_pruning=True
+  memory_limit=0.3, 
+  tokenizer=tokenizer, 
+  dataset="mit-han-lab/pile-val-backup", 
+  remove_columns="meta", 
+  quantization_config=gptqconfig,
+  use_pruning=True, 
+  n_samples=32 # 만약 Python이 killed된다면, 줄여볼것
 )
-
-# CPU 메모리 사용량을 최소화하고 적절한 장치 매핑을 사용하여 사전 학습된 모델을 로드합니다.
+# 적절한 장치 매핑을 사용하여 사전 학습된 모델을 로드합니다.
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
     device_map="cuda",
