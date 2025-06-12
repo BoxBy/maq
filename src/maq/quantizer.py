@@ -26,7 +26,7 @@ class MaqQuantizer(HfQuantizer):
     for quantization and provides various helper methods for the quantization process.
     """
     
-    def __init__(self, quantization_config, metric, **kwargs):
+    def __init__(self, quantization_config, **kwargs):
         """
         Initialize the MaqQuantizer.
 
@@ -38,6 +38,7 @@ class MaqQuantizer(HfQuantizer):
         super().__init__(quantization_config, **kwargs)
         self.quantizer = AutoHfQuantizer.from_config(self.quantization_config.quantization_config)
         self.quantizer = edit_quantizer_for_maq(self.quantizer)
+        metric = kwargs.get("metric", 'z-score')
         if isinstance(metric, str) and metric.lower() in METRIC_MAPPING:
             self.metric = METRIC_MAPPING[metric]
         else:
@@ -153,7 +154,11 @@ class MaqQuantizer(HfQuantizer):
             **kwargs: Additional keyword arguments.
         """
         model.eval()    
-        
+
+        if hasattr(self.quantization_config, "module_dict"):
+            logger.info(f"This model has already been quantized by MaqQuantizer. quantize processed by module_dict")
+            return self.quantize_from_pretrained(model, **kwargs)
+            
         current_usage = compute_model_sizes(model)
         
         logger.info(f"Target VRAM limit: {self.desired_bytes/(1024**3):.3f} GB, current VRAM usage: {current_usage/(1024**3):.3f} GB")
@@ -350,7 +355,7 @@ class MaqQuantizer(HfQuantizer):
         
         for i, module in enumerate(modules):
             self.quantization_config.module_dict[i] = getattr(module, "current_bit", 16)
-            if module.quantized:
+            if getattr(module, "quantized", False):
                 dequantize_module(self.quantizer.quantization_config.quant_method, module)
 
         model.config.quantization_config = self.quantization_config.to_dict()
@@ -373,9 +378,9 @@ class MaqQuantizer(HfQuantizer):
         if not modules:
             modules = getattr(model.model, 'layers')
             
-        for i, module in enumerate(modules):
-            if model.config.quantization_config.module_dict[i] != 16:
-                self.quantizer.quantization_config.bits = model.config.quantization_config.module_dict[i]
+        for i, module in enumerate(tqdm(modules)):
+            if model.config.quantization_config.module_dict[str(i)] != 16:
+                self.quantizer.quantization_config.bits = model.config.quantization_config.module_dict[str(i)]
                 
                 if self.quantizer.quantization_config.quant_method == QuantizationMethod.GPTQ:
                     self.quantizer.optimum_quantizer.bits = self.quantizer.quantization_config.bits
@@ -391,32 +396,8 @@ class MaqQuantizer(HfQuantizer):
                 
                 self.quantizer._process_model_after_weight_loading(module, **kwargs)
                 
-                logger.info(f"{module.name} bitwidth: {16} -> {module.self_attn.q_proj.bits}")
+                logger.info(f"{module.__class__.__name__}_{i} bitwidth: {16} -> {module.self_attn.q_proj.bits}")
                 module.current_bit = module.self_attn.q_proj.bits
                 module.quantized = True
             
         return model
-    
-    @classmethod
-    def from_pretrained(cls, file_path, metric, **kwargs):
-        """
-        Instantiate a MaqQuantizer from a saved pretrained model.
-        It loads the model from the specified file path and applies quantization based on the model's
-        saved quantization configuration.
-
-        Parameters:
-            file_path: Path to the pretrained model.
-            metric: Metric or metric name for quantization evaluation.
-            **kwargs: Additional keyword arguments.
-
-        Returns:
-            A tuple of (quantizer instance, quantized model).
-        """
-        model = AutoModelForCausalLM.from_pretrained(file_path, **kwargs)
-        
-        modules = getattr(model, 'layers', False)
-        if not modules:
-            modules = getattr(model.model, 'layers')
-            
-        quantizer = cls(model.quantization_config, metric, **kwargs)
-        return quantizer, quantizer.quantize_from_pretrained(model, **kwargs)
