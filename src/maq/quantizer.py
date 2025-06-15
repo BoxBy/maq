@@ -248,13 +248,16 @@ class MaqQuantizer(HfQuantizer):
                 - Stacked module inputs.
                 - Stacked module outputs.
         """
-        torch_inputs = []
-        torch_outputs = []
+        all_samples_inputs = []
+        all_samples_outputs = []
         
-        pbar = tqdm(desc=f"process", total=len(modules)*len(self.dataset))
+        # pbar total can be adjusted based on how updates are handled.
+        # If pbar.update(1) is inside the hook, total=len(modules)*len(self.dataset) is correct.
+        # For clarity, a per-sample progress bar is often more informative.
+        pbar_main = tqdm(total=len(self.dataset), desc="Capturing I/O for LIM score")
         
         def store_hook(_, input, output):
-            pbar.update(1)
+            # pbar.update(1) # This pbar update is too frequent if inside hook for many layers.
             layer_inputs.append(input[0].detach().cpu())
             if isinstance(output, tuple):
                 try:
@@ -272,24 +275,41 @@ class MaqQuantizer(HfQuantizer):
         handles = [module.register_forward_hook(store_hook) for module in modules]
         dataset = self.dataset.to(next(model.parameters()).device)
         
-        for data in dataset:
+        for data_idx, data in enumerate(dataset):
             try:
                 layer_inputs = []
                 layer_outputs = []
                 model(data.unsqueeze(0))
-                torch_inputs.append(torch.cat(layer_inputs, dim=0))
-                torch_outputs.append(torch.cat(layer_outputs, dim=0))
-            except ValueError:
-                pass
-        pbar.clear()
+
+                if layer_inputs and len(layer_inputs) == len(modules):
+                    # Stack inputs for all layers for the current sample: (num_layers, seq_len, hidden_dim)
+                    all_samples_inputs.append(torch.stack(layer_inputs, dim=0))
+                else:
+                    logger.warning(f"Sample {data_idx}: Mismatch or no inputs captured. Expected {len(modules)}, got {len(layer_inputs) if layer_inputs else 0}.")
+
+                if layer_outputs and len(layer_outputs) == len(modules):
+                    # Stack outputs for all layers for the current sample: (num_layers, seq_len, hidden_dim)
+                    all_samples_outputs.append(torch.stack(layer_outputs, dim=0))
+                else:
+                    logger.warning(f"Sample {data_idx}: Mismatch or no outputs captured. Expected {len(modules)}, got {len(layer_outputs) if layer_outputs else 0}.")
+
+            except Exception as e: # Catching generic Exception to ensure loop continuation
+                logger.warning(f"Skipping data sample {data_idx} due to error during model forward: {e}")
+            pbar_main.update(1)
+        
+        pbar_main.close()
         
         del dataset
         for handle in handles:
             handle.remove()
         
         self.collect_memory()
-        
-        return torch.stack(torch_inputs, dim=0), torch.stack(torch_outputs, dim=0)
+
+        if not all_samples_inputs or not all_samples_outputs or len(all_samples_inputs) != len(all_samples_outputs):
+            logger.error("Failed to capture sufficient or consistent I/O data for LIM score calculation.")
+            return torch.empty(0), torch.empty(0)
+        # Stack across samples: (num_samples, num_layers, seq_len, hidden_dim)
+        return torch.stack(all_samples_inputs, dim=0), torch.stack(all_samples_outputs, dim=0)
         
     def is_serializable(self, safe_serialization=None):
         """
@@ -352,6 +372,7 @@ class MaqQuantizer(HfQuantizer):
             modules = getattr(model.model, 'layers')
         
         model.config.num_hidden_layers = len(modules)
+        self.quantization_config.module_dict = {}
         
         for i, module in enumerate(modules):
             self.quantization_config.module_dict[i] = getattr(module, "current_bit", 16)

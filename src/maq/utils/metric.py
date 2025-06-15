@@ -2,6 +2,9 @@ import torch
 
 # z-score and LIM score metrics based on https://arxiv.org/abs/2406.17415v2
 
+from transformers.utils import logging
+logger = logging.get_logger(__name__)
+
 def calc_z_score(weight: torch.Tensor) -> float:
     """
     Calculates the ratio of values in the weight tensor with an absolute z-score greater than 1.
@@ -72,14 +75,28 @@ def cal_lim_score(layer_input: torch.Tensor, layer_output: torch.Tensor) -> floa
     Returns:
         float: The calculated LIM score (negative cosine similarity).
     """
-    inp = layer_input.flatten()
-    out = layer_output.flatten()
-    norm_inp = torch.norm(inp, p=2)
-    norm_out = torch.norm(out, p=2)
-    if norm_inp.item() == 0 or norm_out.item() == 0:
+    # Ensure calculations are done in float32 for precision
+    inp_flat = layer_input.flatten().to(torch.float32)
+    out_flat = layer_output.flatten().to(torch.float32)
+
+    norm_inp = torch.norm(inp_flat, p=2)
+    norm_out = torch.norm(out_flat, p=2)
+
+    # Add epsilon for numerical stability, especially if norms are very small (but not zero)
+    epsilon = 1e-8
+    if norm_inp < epsilon or norm_out < epsilon:
+        # If either norm is effectively zero, cosine similarity is undefined or unstable.
+        # Depending on the desired behavior, could return 0.0 or handle as an error.
+        # Returning 0.0 is a common practice.
         return 0.0
-    dot = torch.dot(inp, out)
-    return (-dot / (norm_inp * norm_out)).item()
+
+    dot_product = torch.dot(inp_flat, out_flat)
+    cosine_similarity = dot_product / (norm_inp * norm_out)
+    
+    # Clamp the cosine similarity to the valid range [-1, 1] to handle potential floating point inaccuracies
+    clamped_cosine_similarity = torch.clamp(cosine_similarity, -1.0, 1.0)
+    
+    return (-clamped_cosine_similarity).item()
 
 def cal_lim_score_all(modules, inps, outs) -> dict:
     """
@@ -97,11 +114,28 @@ def cal_lim_score_all(modules, inps, outs) -> dict:
     Returns:
         dict: A dictionary mapping each module to its LIM score.
     """
+    # Expected inps/outs shape: (num_samples, num_layers, seq_len, hidden_dim)
     scores = {}
-    for idx, module in enumerate(modules):
-        layer_inputs = inps[:, idx]
-        layer_outputs = outs[:, idx]
-        scores[module] = cal_lim_score(layer_inputs, layer_outputs)
+    if inps.nelement() == 0 or outs.nelement() == 0:
+        logger.warning("Input or output tensors for LIM score calculation are empty.")
+        for i in range(len(modules)): # Use index if module objects are not directly usable as keys or if modules is just a count
+            scores[modules[i] if isinstance(modules, list) else i] = 0.0 # Assign a default score
+        return scores
+
+    num_samples, num_layers_from_tensor, _, _ = inps.shape
+
+    if num_layers_from_tensor != len(modules):
+        logger.error(f"Mismatch in number of layers. Tensor has {num_layers_from_tensor} layers, but {len(modules)} modules were provided.")
+        # Fallback: assign default score or raise error
+        for i in range(len(modules)):
+            scores[modules[i] if isinstance(modules, list) else i] = 0.0
+        return scores
+
+    for i in range(num_layers_from_tensor):
+        module_key = modules[i] # Assumes modules is a list of module objects or suitable keys
+        layer_i_inputs = inps[:, i, :, :]  # Shape: (num_samples, seq_len, hidden_dim)
+        layer_i_outputs = outs[:, i, :, :] # Shape: (num_samples, seq_len, hidden_dim)
+        scores[module_key] = cal_lim_score(layer_i_inputs, layer_i_outputs)
     return scores
 
 # Mapping of metric names to their respective calculation functions.
