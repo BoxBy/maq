@@ -17,8 +17,8 @@ MAQ는 최신 딥러닝 모델의 가중치 양자화를 위한 경량 라이브
 
 - **메모리 기반 양자화 접근법**:  
   전통적인 비트 폭 중심의 양자화와 달리, MAQ는 사용 가능한 메모리에 따라 양자화를 조정합니다. 이 방식에서는 각 모듈의 중요도를 산출하고, 중요도가 낮은 모듈을 우선적으로 양자화합니다. 방법론에 대해 자세히 알고 싶으시면 관련 논문 [Layer-Wise Quantization](https://arxiv.org/abs/2406.17415)와 [Investigating Layer Importance in Large Language Models](https://arxiv.org/abs/2409.14381)을 참고하세요.
-
-  또한, MAQ는 [논문]과 [논문]을 바탕으로 제작된 라이브러리로, 각 hidden layer가 출력에 기여하는 정도를 계산하여 기여도가 낮은 layer를 우선적으로 양자화합니다. huggingface-transformers 라이브러리와의 호환성을 고려해 작성되었으며, 사용하기 쉽게 설계되었습니다.
+  
+  또한, MAQ는 위 두 논문을 바탕으로 개발된 라이브러리로, 각 hidden layer가 출력에 기여하는 정도를 계산하여 기여도가 낮은 layer를 우선적으로 양자화합니다. huggingface-transformers 라이브러리와의 호환성을 고려하여 작성되었으며, 사용하기 쉽게 설계되었습니다.
 
 - **평가 메트릭**:  
   메트릭 모듈 ([`metric.py`](src/maq/utils/metric.py))은 양자화 우선순위를 결정하기 위한 중요도 계산 메트릭들을 제공합니다.

@@ -18,7 +18,7 @@ MAQ is a lightweight library for weight quantization in modern deep learning mod
 - **Memory-based Quantization Approach**:  
   Unlike traditional methods that quantize based primarily on bit-width, MAQ adapts quantization according to available memory. In this approach, each module's importance is computed, and modules with lower importance are prioritized for quantization. For an in-depth overview of the methodology, please refer to the related papers [Layer-Wise Quantization](https://arxiv.org/abs/2406.17415) and [Investigating Layer Importance in Large Language Models](https://arxiv.org/abs/2409.14381).
 
-  Additionally, MAQ is a library built based on [Paper] and [Paper]. It calculates the contribution of each hidden layer to the output and quantizes those layers with lower importance first. It was designed to be fully compatible with the huggingface-transformers library and to be user-friendly.
+  Furthermore, MAQ is developed based on these two studies. It calculates the contribution of each hidden layer to the output and quantizes those layers with lower importance first. It was designed to be fully compatible with the huggingface-transformers library and to be user-friendly.
 
 - **Evaluation Metrics**:  
   The metrics module ([`metric.py`](src/maq/utils/metric.py)) provides methods to compute importance metrics, which are essential for determining quantization priorities.
