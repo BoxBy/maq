@@ -55,7 +55,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 # Create a GPTQ quantization configuration.
 # Note: The 'bits' parameter here is not used by the quantization process.
-gptqconfig = GPTQConfig(bits=4, dataset='wikitext2')
+gptqconfig = GPTQConfig(bits=4, tokenizer=tokenizer, dataset='wikitext2')
 
 # Define the MAQ quantization configuration with memory limits and pruning as options.
 quantization_config = MaqQuantizationConfig(

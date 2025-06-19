@@ -55,7 +55,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 # GPTQ 양자화 구성을 생성합니다.
 # 참고: 여기서 'bits' 파라미터는 양자화 과정에서 사용되지 않습니다.
-gptqconfig = GPTQConfig(bits=4, dataset='wikitext2')
+gptqconfig = GPTQConfig(bits=4, tokenizer=tokenizer, dataset='wikitext2')
 
 # 메모리 제한 및 Pruning을 옵션으로 하는 MAQ 양자화 구성을 정의합니다.
 quantization_config = MaqQuantizationConfig(
