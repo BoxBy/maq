@@ -41,7 +41,7 @@ class MaqQuantizationConfig(QuantizationConfigMixin):
         if isinstance(quantization_config, QuantizationConfigMixin):
             self.quantization_config = quantization_config
         else:
-            self.quantization_config = GPTQConfig(**kwargs)
+            self.quantization_config = GPTQConfig(bits=4, tokenizer=self.tokenizer, dataset='wikitext2', **kwargs)
         self.quantization_config.modules_to_not_convert = []
         self.quantize_recipe = quantize_recipe
         self.module_dict = module_dict
