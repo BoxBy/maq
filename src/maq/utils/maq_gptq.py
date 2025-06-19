@@ -495,7 +495,7 @@ def pack_model(
     qlayers = get_layers(model, [self.quant_linear])
     for name in qlayers:
         if name not in quantizers:
-            logger.info(f"Layer {name} not found in quantizers.")
+            logger.debug(f"Layer {name} not found in quantizers.")
             continue
         logger.info(name)
         quantizers[name], scale, zero, g_idx = quantizers[name]

@@ -354,6 +354,7 @@ class MaqQuantizer(HfQuantizer):
             modules = getattr(model.model, 'layers')
         
         model.config.num_hidden_layers = len(modules)
+        self.quantize_config.module_dict = {}
         
         for i, module in enumerate(modules):
             self.quantization_config.module_dict[i] = getattr(module, "current_bit", 16)
