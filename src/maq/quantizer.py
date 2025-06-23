@@ -9,7 +9,7 @@ from .utils import edit_quantizer_for_maq, dequantize_module
 from .utils.maq_utils import compute_model_sizes, get_dataset
 from .utils.metric import METRIC_MAPPING
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
 from transformers.utils import logging
 from transformers.quantizers import HfQuantizer, AutoHfQuantizer
 from transformers.utils.quantization_config import QuantizationMethod
@@ -38,7 +38,7 @@ class MaqQuantizer(HfQuantizer):
         super().__init__(quantization_config, **kwargs)
         self.quantizer = AutoHfQuantizer.from_config(self.quantization_config.quantization_config, pre_quantized=False)
         self.quantizer = edit_quantizer_for_maq(self.quantizer)
-        metric = kwargs.get("metric", 'z-score')
+        metric = kwargs.get("metric", 'combined')
         if isinstance(metric, str) and metric.lower() in METRIC_MAPPING:
             self.metric = METRIC_MAPPING[metric]
         else:
@@ -46,6 +46,7 @@ class MaqQuantizer(HfQuantizer):
         if not getattr(self.quantization_config, "model_seqlen", False):
             self.quantization_config.model_seqlen = kwargs.get("model_seqlen", None)
         
+        self.original_weights_cpu = {} # 원본 가중치 캐시 초기화
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         total_mem = torch.cuda.get_device_properties(device).total_memory
         if isinstance(self.quantization_config.memory_limit, str) and self.quantization_config.memory_limit.endswith('%'):
@@ -99,6 +100,9 @@ class MaqQuantizer(HfQuantizer):
         if not hasattr(module, "current_bit"):
             logger.info(f'{module.name} is being quantized for the first time.')
             module.current_bit = 16
+            # 레이어가 처음 양자화될 때 원본 FP16 가중치를 CPU에 캐싱
+            self.original_weights_cpu[module.name] = {name: param.cpu().clone() for name, param in module.state_dict().items()}
+            logger.info(f"Cached original weights for {module.name} to CPU.")
         if module.current_bit <= 2:
             logger.info(f"{module.name} is already at the minimum bit ({module.current_bit} bits).")
             return False
@@ -113,10 +117,21 @@ class MaqQuantizer(HfQuantizer):
             self.quantizer.optimum_quantizer.block_name_to_quantize = module._modules.keys()
             kwargs = dict(kwargs, module_index_to_quantize = module.name)
             
-        # beta : GPTQ Only
+        # 이미 양자화된 모듈을 재양자화하는 경우, 원본 가중치 복원
         if hasattr(module, "quantized") and module.quantized:
-            logger.info(f'module {module.name} already quantized. dequantize first')
+            logger.info(f'Module {module.name} was already quantized. Dequantizing and restoring original weights for re-quantization.')
+            # 1단계: 모듈 구조를 nn.Linear로 복원하기 위해 역양자화
             module = dequantize_module(self.quantizer.quantization_config.quant_method, module)
+            
+            # 2단계: CPU 캐시에서 원본 FP16 가중치를 로드
+            if module.name in self.original_weights_cpu:
+                original_state_dict = self.original_weights_cpu[module.name]
+                device = next(iter(module.parameters())).device
+                # 가중치를 모듈의 장치로 이동 후 로드
+                original_state_dict_on_device = {k: v.to(device) for k, v in original_state_dict.items()}
+                module.load_state_dict(original_state_dict_on_device)
+            else:
+                logger.warning(f"Could not find original weights for {module.name} in cache. Re-quantizing from dequantized weights.")
             
         self.quantizer._process_model_before_weight_loading(
             model, **kwargs
@@ -157,7 +172,7 @@ class MaqQuantizer(HfQuantizer):
         """
         model.eval()    
 
-        if getattr(self.quantization_config, "module_dict", False):
+        if getattr(self.quantization_config, "module_dict", False) and self.quantization_config.module_dict:
             logger.info(f"This model has already been quantized by MaqQuantizer. quantize processed by module_dict")
             return self.quantize_from_pretrained(model, **kwargs)
             
@@ -194,6 +209,8 @@ class MaqQuantizer(HfQuantizer):
                     logger.info(f'Pruning the module {module.name} according to the QuantizerConfig')
                     for i, m in enumerate(modules):
                         if m.name == module.name:
+                            if module.name in self.original_weights_cpu:
+                                del self.original_weights_cpu[module.name] # 프루닝된 모듈의 캐시된 가중치 삭제
                             del modules[i]
                             break
                     break
@@ -201,7 +218,8 @@ class MaqQuantizer(HfQuantizer):
             current_usage = compute_model_sizes(model)
             pbar.update(1)
             self.collect_memory()
-            
+            logger.info(f"Model output: {self.quantization_config.tokenizer.decode(model.generate(**self.quantization_config.tokenizer('hello, world!', return_tensors='pt').to(model.device), generation_config=GenerationConfig(repetition_penalty=1.3, max_new_tokens=200))[0])}")
+
         total_bit = sum(getattr(m, "current_bit", 16) for m in modules)
         avg_bit = total_bit / len(modules) if modules else 0
         logger.info(f"Final memory usage: {current_usage/(1024**3):.3f} GB, average bits (hidden layers only): {avg_bit:.2f}")
@@ -258,15 +276,21 @@ class MaqQuantizer(HfQuantizer):
         def store_hook(_, input, output):
             pbar.update(1)
             layer_inputs.append(input[0].detach().cpu())
+            if layer_inputs[-1].dtype != torch.bfloat16:
+                logger.info(f'input dtype : {layer_inputs[-1].dtype}')
             if isinstance(output, tuple):
                 try:
                     layer_outputs.append(output[0].detach().cpu())
+                    if layer_outputs[-1].dtype != torch.bfloat16:
+                        logger.info(f'output dtype : {layer_outputs[-1].dtype}')
                 except Exception:
                     logger.info(f'output : {output}')
                     pass
             else:
                 try:
                     layer_outputs.append(output.detach().cpu())
+                    if layer_outputs[-1].dtype != torch.bfloat16:
+                        logger.info(f'output dtype : {layer_outputs[-1].dtype}')
                 except Exception:
                     logger.info(f'output : {output}')
                     pass
@@ -355,6 +379,7 @@ class MaqQuantizer(HfQuantizer):
         
         model.config.num_hidden_layers = len(modules)
         self.quantization_config.module_dict = {}
+        self.quantizer.quantization_config.tokenizer = self.quantizer.quantization_config.tokenizer.name_or_path
         
         for i, module in enumerate(modules):
             self.quantization_config.module_dict[i] = getattr(module, "current_bit", 16)
