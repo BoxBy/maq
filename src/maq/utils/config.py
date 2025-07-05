@@ -14,13 +14,17 @@ class MaqQuantizationConfig(QuantizationConfigMixin):
         self,
         quantization_config: Optional[QuantizationConfigMixin] = None,
         memory_limit: str = "70%",
+        metric: str = "combined",
         reverse_sort: bool = False,
         tokenizer: Union[str, PreTrainedTokenizerBase] = None,
         dataset: str = "wikitext2",
         dataset_split="validation",
         remove_columns=[],
         n_samples: Optional[int] = None,
+        shap_samples: int = 32,
         use_pruning: bool = False,
+        use_bit_width_penalty: bool = True,
+        penalty_factor: float = 1.5,
         quantize_recipe = {},
         module_dict: Optional[Dict] = None,
         max_seq_len = 512,
@@ -28,6 +32,7 @@ class MaqQuantizationConfig(QuantizationConfigMixin):
     ):
         self.quant_method = QuantizationMethod.MAQ
         self.memory_limit = memory_limit
+        self.metric = metric
         self.reverse_sort = reverse_sort
         self.quantization_config = quantization_config
         self.tokenizer = tokenizer
@@ -37,7 +42,10 @@ class MaqQuantizationConfig(QuantizationConfigMixin):
         self.dataset_split = dataset_split
         self.remove_columns = remove_columns
         self.n_samples = n_samples
+        self.shap_samples = shap_samples
         self.use_pruning = use_pruning
+        self.use_bit_width_penalty = use_bit_width_penalty
+        self.penalty_factor = penalty_factor
         if isinstance(quantization_config, QuantizationConfigMixin):
             self.quantization_config = quantization_config
         else:
@@ -51,6 +59,7 @@ class MaqQuantizationConfig(QuantizationConfigMixin):
         dic = copy.deepcopy(self.__dict__)
         dic["quantization_config"] = self.quantization_config.to_dict()
         dic["tokenizer"] = self.tokenizer.name_or_path
+        dic["quantization_config"]["tokenizer"] = self.tokenizer.name_or_path
         return dic
     
     @classmethod

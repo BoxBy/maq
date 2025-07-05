@@ -3,7 +3,7 @@ import torch
 
 from tqdm.auto import tqdm
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING, Union
 
 from .utils import edit_quantizer_for_maq, dequantize_module
 from .utils.maq_utils import compute_model_sizes, get_dataset
@@ -38,7 +38,8 @@ class MaqQuantizer(HfQuantizer):
         super().__init__(quantization_config, **kwargs)
         self.quantizer = AutoHfQuantizer.from_config(self.quantization_config.quantization_config, pre_quantized=False)
         self.quantizer = edit_quantizer_for_maq(self.quantizer)
-        metric = kwargs.get("metric", 'combined')
+        metric = self.quantization_config.metric
+        self.raw_dataset = None  # To store the raw dataset for metrics like 'shapely'
         if isinstance(metric, str) and metric.lower() in METRIC_MAPPING:
             self.metric = METRIC_MAPPING[metric]
         else:
@@ -187,16 +188,68 @@ class MaqQuantizer(HfQuantizer):
         for i, module in enumerate(modules):
             module.name = f'{module.__class__.__name__}_{i}'
             
+        # model.model.embed_tokens.current_bit = 16
+        # model.model.norm.current_bit = 16
+        model.lm_head.current_bit = 16
+            
         module_num = 1
         pbar = tqdm(total=len(modules)*(3+self.quantization_config.use_pruning))
         while current_usage > self.desired_bytes:
             
             pbar.set_description(f"memory usage: {current_usage/(1024**3):.3f} GB")
-            inps, outs = self.capture(model, modules)
-            scores = dict(sorted(self.metric(modules, inps, outs).items(), key=lambda item:item[1], reverse=self.quantization_config.reverse_sort))
-            del inps, outs
-            
-            for module, score in scores.items():
+
+            # Calculate scores based on the specified metric.
+            # `shapely` and `hybrid_shap` require special handling.
+            metric_name = self.quantization_config.metric
+            if metric_name in ["shapely", "hybrid_shap"]:
+                if self.raw_dataset is None:
+                    raise ValueError(f"Raw dataset is required for the '{metric_name}' metric but was not loaded.")
+
+                shap_kwargs = {
+                    "modules": modules,
+                    "model": model,
+                    "tokenizer": self.quantization_config.tokenizer,
+                    "dataset": self.raw_dataset,
+                    "n_samples": self.quantization_config.n_samples,
+                    "shap_samples": self.quantization_config.shap_samples,
+                }
+
+                if metric_name == "hybrid_shap":
+                    # Hybrid metric also needs captured inputs/outputs
+                    inps, outs = self.capture(model, modules)
+                    all_scores = self.metric(**shap_kwargs, inps=inps, outs=outs)
+                    del inps, outs
+                else:  # "shapely"
+                    # Shapely metric only needs the model and data
+                    all_scores = self.metric(**shap_kwargs)
+            else:
+                # For all other metrics, use the capture method
+                inps, outs = self.capture(model, modules)
+                all_scores = self.metric(modules, inps, outs)
+                del inps, outs
+
+            scores = dict(sorted(all_scores.items(), key=lambda item:item[1], reverse=self.quantization_config.reverse_sort))
+
+            # Bit-width 페널티 적용 로직
+            if self.quantization_config.use_bit_width_penalty:
+                penalized_scores = {}
+                for module, score in scores.items():
+                    current_bit = getattr(module, 'current_bit', 16)
+                    if current_bit < 16:
+                        # 비트가 낮을수록 더 큰 페널티를 적용 (예: 8bit -> 1.5배, 4bit -> 1.5^2=2.25배)
+                        penalty = self.quantization_config.penalty_factor ** (16 / current_bit / 2)
+                        penalized_scores[module] = score * penalty
+                scores.update(penalized_scores)
+                scores = dict(sorted(scores.items(), key=lambda item:item[1], reverse=self.quantization_config.reverse_sort))
+
+            # Calculate average bit-width
+            total_bits = sum(getattr(m, 'current_bit', 16) for m in modules)
+            avg_bits = total_bits / len(modules) if modules else 16
+
+            for module, score in scores.items():                
+                if avg_bits < model.lm_head.current_bit // 2:
+                    pass # @TODO : lm_head, norm, embed_token quantize
+                
                 if self.quantize_once(model, module, score, **kwargs):
                     self.quantization_config.quantize_recipe[module_num] = [
                         module.name,
@@ -211,14 +264,36 @@ class MaqQuantizer(HfQuantizer):
                         if m.name == module.name:
                             if module.name in self.original_weights_cpu:
                                 del self.original_weights_cpu[module.name] # 프루닝된 모듈의 캐시된 가중치 삭제
+                            for param in modules[i].parameters():
+                                param.data = torch.empty(0)
+                                del param
                             del modules[i]
                             break
                     break
                         
             current_usage = compute_model_sizes(model)
+            logger.info(f"Current memory usage: {current_usage/(1024**3):.3f} GB")
             pbar.update(1)
             self.collect_memory()
-            logger.info(f"Model output: {self.quantization_config.tokenizer.decode(model.generate(**self.quantization_config.tokenizer('hello, world!', return_tensors='pt').to(model.device), generation_config=GenerationConfig(repetition_penalty=1.3, max_new_tokens=200))[0])}")
+            # Use a more informative prompt and the chat template for instruction-tuned models
+            test_messages = [{"role": "user", "content": "Explain the main difference between a list and a tuple in Python. Provide a short code example for each."}]
+            inputs = self.quantization_config.tokenizer.apply_chat_template(
+                test_messages,
+                add_generation_prompt=True,
+                return_tensors="pt"
+            ).to(model.device)
+            
+            # Generate a short response to check model health
+            # Use greedy decoding for consistent output for comparison
+            output_ids = model.generate(inputs, max_new_tokens=300, do_sample=False)
+            
+            # Decode only the newly generated tokens, not the whole sequence including the prompt
+            response_text = self.quantization_config.tokenizer.decode(output_ids[0][inputs.shape[-1]:], skip_special_tokens=True)
+            logger.info(f"Model health check. Prompt: '{test_messages[0]['content']}'. Response: {response_text}")
+            
+            # 3. (선택적) Perplexity 계산 로직 추가 위치
+            # ppl = calculate_perplexity(model, tokenizer, validation_data)
+            # logger.info(f"Perplexity after step: {ppl:.4f}")
 
         total_bit = sum(getattr(m, "current_bit", 16) for m in modules)
         avg_bit = total_bit / len(modules) if modules else 0
@@ -246,6 +321,18 @@ class MaqQuantizer(HfQuantizer):
             if self.quantization_config.dataset is None:
                 raise ValueError("You need to pass `dataset` in order to quantize your model")
             elif isinstance(self.quantization_config.dataset, str):
+                # For shapely or hybrid_shap, we need the raw text dataset.
+                if self.quantization_config.metric in ["shapely", "hybrid_shap"]:
+                    from datasets import load_dataset
+                    logger.info(f"Loading raw dataset for 'shapely' metric: {self.quantization_config.dataset}")
+                    # Load the raw dataset and store it.
+                    self.raw_dataset = load_dataset(
+                        self.quantization_config.dataset,
+                        split=self.quantization_config.dataset_split,
+                    )
+                    if self.quantization_config.n_samples is not None:
+                        self.raw_dataset = self.raw_dataset.select(range(self.quantization_config.n_samples))
+
                 dataset = get_dataset(self.quantization_config.dataset, self.quantization_config.tokenizer, split=self.quantization_config.dataset_split, remove_columns=self.quantization_config.remove_columns, n_samples=self.quantization_config.n_samples)
             else:
                 raise ValueError(
@@ -276,21 +363,15 @@ class MaqQuantizer(HfQuantizer):
         def store_hook(_, input, output):
             pbar.update(1)
             layer_inputs.append(input[0].detach().cpu())
-            if layer_inputs[-1].dtype != torch.bfloat16:
-                logger.info(f'input dtype : {layer_inputs[-1].dtype}')
             if isinstance(output, tuple):
                 try:
                     layer_outputs.append(output[0].detach().cpu())
-                    if layer_outputs[-1].dtype != torch.bfloat16:
-                        logger.info(f'output dtype : {layer_outputs[-1].dtype}')
                 except Exception:
                     logger.info(f'output : {output}')
                     pass
             else:
                 try:
                     layer_outputs.append(output.detach().cpu())
-                    if layer_outputs[-1].dtype != torch.bfloat16:
-                        logger.info(f'output dtype : {layer_outputs[-1].dtype}')
                 except Exception:
                     logger.info(f'output : {output}')
                     pass

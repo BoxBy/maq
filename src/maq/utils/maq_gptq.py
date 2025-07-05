@@ -399,7 +399,7 @@ def gptq_quantize_model(self, model: nn.Module, tokenizer: Optional[Any] = None,
                 for h in handles:
                     h.remove()
                 for name in subset_name_list:
-                    logger.info(f"Quantizing {name} in block {i}/{len(blocks)}...")
+                    logger.debug(f"Quantizing {name} in block {i}/{len(blocks)}...")
                     quant_outputs = gptq[name].fasterquant(
                         percdamp=self.damp_percent, group_size=self.group_size, actorder=self.desc_act
                     )
